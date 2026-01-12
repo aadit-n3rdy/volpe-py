@@ -6,15 +6,12 @@ import grpc
 import concurrent.futures
 import threading
 
-from opfunu.cec_based.cec2022 import *
+import tsplib95 as tsplib
 
-NDIM=20
+problem = tsplib.load_problem('d15112.tsp')
 
-func = F122022(ndim=NDIM)
+NDIM=15112
 
-LOW = func.lb[0]
-HIGH = func.ub[0]
-MUTATE_STD = 5.0
 MUTATION_RATE = 0.2
 INDPB = 1/NDIM
 CXPROB = 0.9
@@ -23,22 +20,19 @@ BASE_POPULATION_SIZE = 50
 
 import numpy as np
 
-
 def fitness(x):
-    return float(np.float32(func.evaluate(x)))
+    return problem.trace_tours([x])[0]
 
-def mutate(x):
-    mutated = x[0] + np.random.normal(size=NDIM, scale=MUTATE_STD) * \
-            np.array([ 1 if np.random.random() < INDPB else 0 ])
-    for i in range(NDIM):
-        if mutated[i] < LOW:
-            mutated[i] = LOW
-        elif mutated[i] > HIGH:
-            mutated[i] = HIGH
-    if len(mutated) != NDIM:
-        print("mutate")
-    ind = np.astype(mutated, np.float32)
-    return (ind, fitness(ind))
+def mutate(x: np.ndarray):
+    n_swaps = np.random.binomial(15112, INDPB)
+    x = x.copy()
+    for _ in range(n_swaps):
+        i1 = np.random.randint(NDIM)
+        i2 = np.random.randint(NDIM)
+        buf = x[i1]
+        x[i1] = x[i2]
+        x[i2] = buf
+    return (x, fitness(x))
 def varAnd(popln):
     ogLen = len(popln)
     popln = select(popln, ogLen)
@@ -55,10 +49,32 @@ def varAnd(popln):
             newpopln.append(popln[i+1])
     return mutate_popln(newpopln)
 
-def crossover(x, y):
-    rands = np.random.uniform(0, 1, size=NDIM)
-    ind1 = np.array([x[0][i] if rands[i] == 0 else y[0][i] for i in range(NDIM)])
-    ind2 = np.array([y[0][i] if rands[i] == 0 else x[0][i] for i in range(NDIM)])
+def cross_raw(p0: np.ndarray, p1: np.ndarray):
+    i1 = np.random.randint(NDIM)
+    i2 = np.random.randint(NDIM)
+    if i1 > i2:
+        i2,i1=i1,i2
+    pc = np.zeros(NDIM, np.int32)
+    pc[i1:i2+1] = p0[i1:i2+1]
+    doneSet = { x for x in p0[i1:i2+1] }
+    ci = 0
+    pi = 0
+    while ci < len(pc):
+        if ci == i1:
+            ci = i2 + 1
+            if ci >= len(pc):
+                break
+        while p1[pi] in doneSet:
+            pi += 1
+        pc[ci] = p1[pi]
+        doneSet.add(p1[p1])
+        pi += 1
+        ci += 1
+    return pc
+
+def crossover(x: np.ndarray, y: np.ndarray):
+    ind1 = cross_raw(x, y)
+    ind2 = cross_raw(y, x)
     return (ind1, fitness(ind1)), (ind2, fitness(ind2))
 
 def select(popln: list[tuple[np.ndarray, float]], newPop: int):
@@ -75,7 +91,7 @@ def choice(popln: list[Any]):
     return idx
 
 def gen_ind():
-    ind = (np.random.random(size=NDIM) * (HIGH-LOW) + LOW).astype(np.float32)
+    ind = np.random.permutation(NDIM)+1
     return (ind, fitness(ind))
 
 def expand(popln: list[tuple[np.ndarray, float]], newPop: int):

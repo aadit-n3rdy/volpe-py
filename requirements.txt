@@ -1,2 +1,4 @@
 numpy
-opfunu
+tsplib95
+grpcio
+grpcio_tools
