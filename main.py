@@ -16,16 +16,16 @@ MUTATION_RATE = 0.2
 INDPB = 1/NDIM
 CXPROB = 0.9
 
-BASE_POPULATION_SIZE = 50
+BASE_POPULATION_SIZE = 100
 
 import numpy as np
 
 def fitness(x):
     return problem.trace_tours([x])[0]
 
-def mutate(x: np.ndarray):
+def mutate(x):
     n_swaps = np.random.binomial(15112, INDPB)
-    x = x.copy()
+    x = x[0].copy()
     for _ in range(n_swaps):
         i1 = np.random.randint(NDIM)
         i2 = np.random.randint(NDIM)
@@ -67,14 +67,14 @@ def cross_raw(p0: np.ndarray, p1: np.ndarray):
         while p1[pi] in doneSet:
             pi += 1
         pc[ci] = p1[pi]
-        doneSet.add(p1[p1])
+        doneSet.add(p1[pi])
         pi += 1
         ci += 1
     return pc
 
 def crossover(x: np.ndarray, y: np.ndarray):
-    ind1 = cross_raw(x, y)
-    ind2 = cross_raw(y, x)
+    ind1 = cross_raw(x[0], y[0])
+    ind2 = cross_raw(y[0], x[0])
     return (ind1, fitness(ind1)), (ind2, fitness(ind2))
 
 def select(popln: list[tuple[np.ndarray, float]], newPop: int):
@@ -142,7 +142,7 @@ def popListToBytes(popln: list[tuple[np.ndarray, float]]):
     indList : list[pbc.Individual] = []
     for mem in popln:
         indList.append(pbc.Individual(genotype=mem[0].astype(np.float32).tobytes(), fitness=mem[1]))
-    return pbc.Population(members=indList, problemID="p1")
+    return pbc.Population(members=indList)
 
 class VolpeGreeterServicer(vp.VolpeContainerServicer):
     def __init__(self, *args, **kwargs):
@@ -177,21 +177,21 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
         """Missing associated documentation comment in .proto file."""
         with self.poplock:
             if self.popln is None:
-                return pbc.Population(members=[], problemID="p1")
+                return pbc.Population(members=[])
             popSorted = sorted(self.popln, key=lambda x: x[1])
             return popListToBytes(popSorted[:request.size])
     @override
     def GetResults(self, request: pb.PopulationSize, context):
         with self.poplock:
             if self.popln is None:
-                return pbc.Population(members=[], problemID="p1")
+                return pbc.Population(members=[])
             popSorted = sorted(self.popln, key=lambda x: x[1])
             return popListTostring(popSorted[:request.size])
     @override
     def GetRandom(self, request: pb.PopulationSize, context):
         with self.poplock:
             if self.popln is None:
-                return pbc.Population(members=[], problemID="p1")
+                return pbc.Population(members=[])
             popList = get_random_list(self.popln, request.size)
             return popListToBytes(popList)
     @override
