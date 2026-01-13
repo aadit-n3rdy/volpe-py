@@ -12,19 +12,28 @@ problem = tsplib.load_problem('d15112.tsp')
 
 NDIM=15112
 
-MUTATION_RATE = 0.2
-INDPB = 1/NDIM
+MUTATION_RATE = 0.4
+SWAP_PROB = 30/NDIM
 CXPROB = 0.9
+REVERSALS = 1
+DIVERSITY_COEFF = 0.1
 
-BASE_POPULATION_SIZE = 100
+BASE_POPULATION_SIZE = 50
 
 import numpy as np
+
+def inv_distance(s1, s2):
+    # Create a DP table with dimensions (len(s1)+1) x (len(s2)+1)
+    # using numpy for efficient array operations.
+    s1 = s1[0]
+    s2 = s2[0]
+    return NDIM-np.sum(s1 == s2)
 
 def fitness(x):
     return problem.trace_tours([x])[0]
 
 def mutate(x):
-    n_swaps = np.random.binomial(15112, INDPB)
+    n_swaps = np.random.binomial(15112, SWAP_PROB)
     x = x[0].copy()
     for _ in range(n_swaps):
         i1 = np.random.randint(NDIM)
@@ -32,6 +41,13 @@ def mutate(x):
         buf = x[i1]
         x[i1] = x[i2]
         x[i2] = buf
+    n_reversals = np.random.poisson(lam=REVERSALS)
+    for _ in range(n_reversals):
+        i1 = np.random.randint(NDIM)
+        i2 = np.random.randint(NDIM)
+        if i1 < i2:
+            i1, i2 = i2, i1
+        x[i1:i2+1] = x[i2:i1-1:-1]
     return (x, fitness(x))
 def varAnd(popln):
     ogLen = len(popln)
@@ -79,9 +95,17 @@ def crossover(x: np.ndarray, y: np.ndarray):
 
 def select(popln: list[tuple[np.ndarray, float]], newPop: int):
     newpopln = []
+    lcs_table = np.zeros(shape=(len(popln), len(popln)))
+    for i in range(BASE_POPULATION_SIZE-1):
+        for j in range(i, BASE_POPULATION_SIZE):
+            lcs_table[i][j] = inv_distance(popln[i], popln[j])
+    for i in range(BASE_POPULATION_SIZE-1):
+        for j in range(i, BASE_POPULATION_SIZE):
+            lcs_table[j][i] = lcs_table[i][j]
+    popln_div = [(popln[i][0], popln[i][1], np.mean(lcs_table[i]))for i in range(len(popln))]
     while len(newpopln) < newPop:
-        choices = [popln[choice(popln)] for _ in range(3)]
-        selected = min(choices, key=lambda x: x[1])
+        choices = [popln_div[choice(popln)] for _ in range(3)]
+        selected = min(choices, key=lambda x: x[1] + DIVERSITY_COEFF*x[2])
         newpopln.append((selected[0].copy(), selected[1]))
     return newpopln
 
@@ -106,6 +130,7 @@ def expand(popln: list[tuple[np.ndarray, float]], newPop: int):
         popln.append(y1)
         popln.append(y2)
     return popln
+
 
 def get_random_list(popln: list[tuple[np.ndarray, float]], n: int):
     return [ popln[np.random.randint(len(popln))] for _ in range(n) ]
@@ -218,8 +243,9 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
                     newpopln.append(n1)
                     newpopln.append(n2)
                 else:
-                    newpopln.append(popln[i])
-                    newpopln.append(popln[i+1])
+                    n1, n2 = popln[i], popln[i+1]
+                    newpopln.append(n1)
+                    newpopln.append(n2)
             self.popln = mutate_popln(newpopln)
             self.popln = expand(self.popln, ogLen*2)
             self.popln = select(self.popln, ogLen)
