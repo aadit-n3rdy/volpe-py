@@ -16,7 +16,15 @@ MUTATION_RATE = 0.4
 SWAP_PROB = 30/NDIM
 CXPROB = 0.9
 REVERSALS = 1
-DIVERSITY_COEFF = 0.1
+
+DIVERSITY_COEFF = 1
+DIVERSITY_MULTIP = 1-1e-2
+
+FITNESS_DIV_COEFF = 1e2
+
+NOISE_VAR = 0
+NOISE_INC_MULTIP = 3.0
+NOISE_DEC_MULTIP = 0.8
 
 BASE_POPULATION_SIZE = 50
 
@@ -95,17 +103,23 @@ def crossover(x: np.ndarray, y: np.ndarray):
 
 def select(popln: list[tuple[np.ndarray, float]], newPop: int):
     newpopln = []
-    lcs_table = np.zeros(shape=(len(popln), len(popln)))
-    for i in range(BASE_POPULATION_SIZE-1):
-        for j in range(i, BASE_POPULATION_SIZE):
-            lcs_table[i][j] = inv_distance(popln[i], popln[j])
-    for i in range(BASE_POPULATION_SIZE-1):
-        for j in range(i, BASE_POPULATION_SIZE):
-            lcs_table[j][i] = lcs_table[i][j]
-    popln_div = [(popln[i][0], popln[i][1], np.mean(lcs_table[i]))for i in range(len(popln))]
+    # lcs_table = np.zeros(shape=(len(popln), len(popln)))
+    # for i in range(BASE_POPULATION_SIZE-1):
+    #     for j in range(i, BASE_POPULATION_SIZE):
+    #         lcs_table[i][j] = inv_distance(popln[i], popln[j])
+    # for i in range(BASE_POPULATION_SIZE-1):
+    #     for j in range(i, BASE_POPULATION_SIZE):
+    #         lcs_table[j][i] = lcs_table[i][j]
+    global NOISE_VAR
+    global DIVERSITY_COEFF
+    global FITNESS_DIV_COEFF
+
+    mean_fitness = np.mean([x[1] for  x in popln])
+
+    popln_div = [(popln[i][0], popln[i][1], popln[i][1] + np.random.standard_normal()*np.sqrt(NOISE_VAR) - (popln[i][1] - mean_fitness)**2 * FITNESS_DIV_COEFF) for i in range(len(popln))]
     while len(newpopln) < newPop:
         choices = [popln_div[choice(popln)] for _ in range(3)]
-        selected = min(choices, key=lambda x: x[1] + DIVERSITY_COEFF*x[2])
+        selected = min(choices, key=lambda x: x[2])
         newpopln.append((selected[0].copy(), selected[1]))
     return newpopln
 
@@ -174,6 +188,7 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
         super().__init__(*args, **kwargs)
         self.popln : list[tuple[np.ndarray, float]] = [ gen_ind() for _ in range(BASE_POPULATION_SIZE)  ]
         self.poplock = threading.Lock()
+        self.last_best = np.inf
 
     @override
     def SayHello(self, request: pb.HelloRequest, context: grpc.ServicerContext):
@@ -231,24 +246,39 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
     @override
     def RunForGenerations(self, request: pb.PopulationSize, context):
         """Missing associated documentation comment in .proto file."""
+        global DIVERSITY_COEFF
+        global NOISE_VAR
+        global NOISE_DEC_MULTIP
+        global NOISE_INC_MULTIP
         with self.poplock:
-            ogLen = len(self.popln)
-            popln = select(self.popln, ogLen)
-            newpopln = [ ]
-            for i in range(0, ogLen, 2):
-                if np.random.random() < CXPROB:
-                    i1 = i
-                    i2 = i+1
-                    n1, n2 = crossover(popln[i1], popln[i2])
-                    newpopln.append(n1)
-                    newpopln.append(n2)
-                else:
-                    n1, n2 = popln[i], popln[i+1]
-                    newpopln.append(n1)
-                    newpopln.append(n2)
-            self.popln = mutate_popln(newpopln)
-            self.popln = expand(self.popln, ogLen*2)
-            self.popln = select(self.popln, ogLen)
+            self.popln = varAnd(self.popln)
+            # ogLen = len(self.popln)
+            # popln = select(self.popln, ogLen)
+            # newpopln = [ ]
+            # for i in range(0, ogLen, 2):
+            #     if np.random.random() < CXPROB:
+            #         i1 = i
+            #         i2 = i+1
+            #         n1, n2 = crossover(popln[i1], popln[i2])
+            #         newpopln.append(n1)
+            #         newpopln.append(n2)
+            #     else:
+            #         n1, n2 = popln[i], popln[i+1]
+            #         newpopln.append(n1)
+            #         newpopln.append(n2)
+            # self.popln = mutate_popln(newpopln)
+            # self.popln = expand(self.popln, ogLen*2)
+            # self.popln = select(self.popln, ogLen)
+            newBest = min(self.popln, key=lambda x: x[1])[1]
+            if newBest < self.last_best:
+                self.last_best = newBest
+                DIVERSITY_COEFF *= DIVERSITY_MULTIP
+                NOISE_VAR *= NOISE_DEC_MULTIP
+                print("DIVERSITY_DECREASE")
+            else:
+                DIVERSITY_COEFF /= DIVERSITY_MULTIP
+                NOISE_VAR *= NOISE_INC_MULTIP
+                print("DIVERSITY_INCREASE")
         return pb.Reply(success=True)
 
 if __name__=='__main__':
