@@ -8,25 +8,25 @@ import threading
 
 import tsplib95 as tsplib
 
-problem = tsplib.load_problem('d15112.tsp')
+problem = tsplib.load_problem('dsj1000.tsp')
 
-NDIM=15112
+NDIM=1000
 
 MUTATION_RATE = 0.4
-SWAP_PROB = 30/NDIM
+SWAP_PROB = 0.2
 CXPROB = 0.9
-REVERSALS = 1
+REVERSAL_PROB = 2/500
 
 DIVERSITY_COEFF = 1
 DIVERSITY_MULTIP = 1-1e-2
 
-FITNESS_DIV_COEFF = 1e2
+FITNESS_DIV_COEFF = 0
 
 NOISE_VAR = 0
 NOISE_INC_MULTIP = 3.0
 NOISE_DEC_MULTIP = 0.8
 
-BASE_POPULATION_SIZE = 50
+BASE_POPULATION_SIZE = 3000
 
 import numpy as np
 
@@ -41,7 +41,7 @@ def fitness(x):
     return problem.trace_tours([x])[0]
 
 def mutate(x):
-    n_swaps = np.random.binomial(15112, SWAP_PROB)
+    n_swaps = np.random.binomial(NDIM, SWAP_PROB)
     x = x[0].copy()
     for _ in range(n_swaps):
         i1 = np.random.randint(NDIM)
@@ -49,13 +49,13 @@ def mutate(x):
         buf = x[i1]
         x[i1] = x[i2]
         x[i2] = buf
-    n_reversals = np.random.poisson(lam=REVERSALS)
+    n_reversals = np.random.poisson(lam=REVERSAL_PROB*5934)
     for _ in range(n_reversals):
         i1 = np.random.randint(NDIM)
         i2 = np.random.randint(NDIM)
-        if i1 < i2:
+        if i1 > i2:
             i1, i2 = i2, i1
-        x[i1:i2+1] = x[i2:i1-1:-1]
+        x[i1:i2] = x[i1:i2][::-1]
     return (x, fitness(x))
 def varAnd(popln):
     ogLen = len(popln)
@@ -79,13 +79,13 @@ def cross_raw(p0: np.ndarray, p1: np.ndarray):
     if i1 > i2:
         i2,i1=i1,i2
     pc = np.zeros(NDIM, np.int32)
-    pc[i1:i2+1] = p0[i1:i2+1]
-    doneSet = { x for x in p0[i1:i2+1] }
+    pc[i1:i2] = p0[i1:i2]
+    doneSet = { x for x in p0[i1:i2] }
     ci = 0
     pi = 0
     while ci < len(pc):
         if ci == i1:
-            ci = i2 + 1
+            ci = i2
             if ci >= len(pc):
                 break
         while p1[pi] in doneSet:
@@ -207,9 +207,12 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
             seedPop = bstringToPopln(request)
             if self.popln == None:
                 self.popln = []
-            self.popln.extend(seedPop)
+            for p in seedPop:
+                idx = np.random.randint(ogLen)
+                self.popln[idx] = p
+            # self.popln.extend(seedPop)
 
-            self.popln = select(self.popln, ogLen)
+            # self.popln = select(self.popln, ogLen)
 
             return pb.Reply(success=True)
     @override
@@ -274,11 +277,9 @@ class VolpeGreeterServicer(vp.VolpeContainerServicer):
                 self.last_best = newBest
                 DIVERSITY_COEFF *= DIVERSITY_MULTIP
                 NOISE_VAR *= NOISE_DEC_MULTIP
-                print("DIVERSITY_DECREASE")
             else:
                 DIVERSITY_COEFF /= DIVERSITY_MULTIP
                 NOISE_VAR *= NOISE_INC_MULTIP
-                print("DIVERSITY_INCREASE")
         return pb.Reply(success=True)
 
 if __name__=='__main__':
